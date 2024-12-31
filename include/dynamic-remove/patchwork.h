@@ -242,22 +242,48 @@ inline void PatchWork<PointT>::estimate_plane_(const pcl::PointCloud<PointT> &gr
     th_dist_d_ = th_dist_ - d_;
 }
 
+/**
+ * @brief 提取初始地面种子点。
+ *
+ * @tparam PointT 点云类型模板参数。
+ * @param[in] zone_idx 区域索引，用于选择特定区域的种子点提取策略。
+ * @param[in] p_sorted 已排序的输入点云（通常按高度从低到高排序）。
+ * @param[out] init_seeds 提取出的初始地面种子点云。
+ *
+ * @details
+ * 该函数通过以下步骤提取地面初始种子点：
+ * 1. **清空初始化**：
+ *    - 清空输出种子点云 `init_seeds` 的内容。
+ * 2. **计算低点代表（LPR，Low Point Representative）**：
+ *    - 如果 `zone_idx == 0`，过滤高度低于 `adaptive_seed_selection_margin_ * sensor_height_` 的点，确定种子点的初始索引 `init_idx`。
+ *    - 计算从 `init_idx` 开始的点的高度均值，作为 LPR 高度 `lpr_height`。
+ * 3. **筛选初始种子点**：
+ *    - 遍历点云，将高度小于 `lpr_height + th_seeds_` 的点加入种子点云 `init_seeds`。
+ *
+ * @note
+ * - `adaptive_seed_selection_margin_` 和 `sensor_height_`：用于动态调整种子点的高度范围。
+ * - `num_lpr_`：用于计算 LPR 高度的点数。
+ * - `th_seeds_`：种子点的高度阈值。
+ */
 template <typename PointT>
 inline void PatchWork<PointT>::extract_initial_seeds_(
     const int zone_idx, const pcl::PointCloud<PointT> &p_sorted,
     pcl::PointCloud<PointT> &init_seeds)
 {
+    // 1. 清空初始种子点云
     init_seeds.points.clear();
 
-    // LPR is the mean of low point representative
+    // LPR 是低点代表的均值
     double sum = 0;
     int cnt = 0;
 
+    // 确定初始索引
     int init_idx = 0;
     if (zone_idx == 0)
     {
         for (int i = 0; i < p_sorted.points.size(); i++)
         {
+            // 如果点的高度小于 adaptive_seed_selection_margin_ * sensor_height_，更新初始索引
             if (p_sorted.points[i].z < adaptive_seed_selection_margin_ * sensor_height_)
             {
                 ++init_idx;
@@ -269,15 +295,16 @@ inline void PatchWork<PointT>::extract_initial_seeds_(
         }
     }
 
-    // Calculate the mean height value.
+    // 2. 计算低点代表（LPR）的高度均值
     for (int i = init_idx; i < p_sorted.points.size() && cnt < num_lpr_; i++)
     {
         sum += p_sorted.points[i].z;
         cnt++;
     }
-    double lpr_height = cnt != 0 ? sum / cnt : 0; // in case divide by 0
+    // 防止除以 0 的情况
+    double lpr_height = cnt != 0 ? sum / cnt : 0;
 
-    // iterate pointcloud, filter those height is less than lpr.height+th_seeds_
+    // 3. 筛选初始地面种子点
     for (int i = 0; i < p_sorted.points.size(); i++)
     {
         if (p_sorted.points[i].z < lpr_height + th_seeds_)
@@ -516,63 +543,91 @@ inline void PatchWork<PointT>::pc2czm(const pcl::PointCloud<PointT> &src, std::v
 }
 
 // For adaptive
+/**
+ * @brief 提取分段平面地面点云和非地面点云。
+ *
+ * @tparam PointT 点云类型模板参数。
+ * @param[in] zone_idx 区域索引，用于提取初始地面种子点。
+ * @param[in] src 输入点云。
+ * @param[out] dst 输出的地面点云。
+ * @param[out] non_ground_dst 输出的非地面点云。
+ *
+ * @details
+ * 该函数通过以下步骤实现地面提取：
+ * 1. **初始化**：
+ *    - 清空 `ground_pc_`、`dst` 和 `non_ground_dst`，确保处理前的容器为空。
+ * 2. **提取初始地面种子点**：
+ *    - 调用 `extract_initial_seeds_` 提取初始地面种子点，并存储在 `ground_pc_` 中。
+ * 3. **地面提取迭代**：
+ *    - 对 `ground_pc_` 进行多次迭代：
+ *      - 使用 `estimate_plane_` 方法估计地面平面参数。
+ *      - 根据地面平面模型的点到平面距离阈值 `th_dist_d_`，区分地面点和非地面点。
+ *      - 在迭代的最后一次，将符合地面条件的点加入 `dst`，非地面点加入 `non_ground_dst`。
+ *
+ * @note
+ * - `num_iter_`：迭代次数。
+ * - `th_dist_d_`：点到平面距离阈值。
+ * - `normal_`：平面法向量。
+ */
 template <typename PointT>
 inline void PatchWork<PointT>::extract_piecewiseground(
     const int zone_idx, const pcl::PointCloud<PointT> &src,
     pcl::PointCloud<PointT> &dst,
     pcl::PointCloud<PointT> &non_ground_dst)
 {
-    // 0. Initialization
+    // 0. 初始化
     if (!ground_pc_.empty())
         ground_pc_.clear();
     if (!dst.empty())
         dst.clear();
     if (!non_ground_dst.empty())
         non_ground_dst.clear();
-    // 1. set seeds!
 
+    // 1. 提取初始地面种子点
     extract_initial_seeds_(zone_idx, src, ground_pc_);
-    // 2. Extract ground
+
+    // 2. 多次迭代提取地面
     for (int i = 0; i < num_iter_; i++)
     {
+        // 估计平面模型
         estimate_plane_(ground_pc_);
         ground_pc_.clear();
 
-        // pointcloud to matrix
+        // 将点云转换为矩阵形式
         Eigen::MatrixXf points(src.points.size(), 3);
         int j = 0;
         for (auto &p : src.points)
         {
             points.row(j++) << p.x, p.y, p.z;
         }
-        // ground plane model
+
+        // 计算点到平面的距离
         Eigen::VectorXf result = points * normal_;
-        // threshold filter
+
+        // 根据阈值区分地面点和非地面点
         for (int r = 0; r < result.rows(); r++)
         {
             if (i < num_iter_ - 1)
             {
+                // 非最后一次迭代，仅更新地面点云
                 if (result[r] < th_dist_d_)
                 {
                     ground_pc_.points.push_back(src[r]);
                 }
             }
             else
-            { // Final stage
+            {
+                // 最后一次迭代，区分地面点和非地面点
                 if (result[r] < th_dist_d_)
                 {
                     dst.points.push_back(src[r]);
                 }
                 else
                 {
-                    if (i == num_iter_ - 1)
-                    {
-                        non_ground_dst.push_back(src[r]);
-                    }
+                    non_ground_dst.push_back(src[r]);
                 }
             }
         }
     }
 }
-
 #endif
