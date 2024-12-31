@@ -88,5 +88,6 @@
         "numericaldiff": "cpp",
         "specialfunctions": "cpp"
     },
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "ros.distro": "noetic"
 }
