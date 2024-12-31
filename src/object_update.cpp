@@ -1,25 +1,57 @@
 #include "dynamic-remove/tgrs.h"
 
-std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointCloud<PointType>::Ptr> detect(const pcl::PointCloud<PointType>::Ptr &local_, const pcl::PointCloud<PointType>::Ptr &global_, const float &search_dis_)
+/**
+ * @brief 在局部点云和全局点云中进行点匹配、融合以及分类。
+ *
+ * @param[in] local_ 局部点云数据。
+ * @param[in] global_ 全局点云数据。
+ * @param[in] search_dis_ 匹配搜索的半径距离。
+ * @return 返回一个包含两个点云的pair：结果点云RGB（用于显示）和结果点云（实际使用）。
+ *
+ * @details
+ * 该函数通过以下步骤完成局部与全局点云的融合：
+ * 1. **选择更新区域**：
+ *    - 通过获取局部点云的边界（`getMinMax3D`），在全局点云中选取与局部点云重叠的点。
+ * 2. **匹配与搜索**：
+ *    - 使用KD树对局部点云进行搜索，找到全局点云中在指定搜索半径内的点。
+ *    - 匹配成功的点存入 `local_find`，未匹配的点存入 `local_nofind`。
+ * 3. **点融合**：
+ *    - 对局部点云和全局点云中匹配的点进行融合，计算新的位置并添加到结果点云中（绿色点表示）。
+ * 4. **分类结果**：
+ *    - 未匹配的局部点云点作为新的点（蓝色点）。
+ *    - 未匹配的全局点云点被视为旧的点（红色点）。
+ * 5. **结果输出**：
+ *    - 将融合后的点云结果输出，并返回两种格式的点云。
+ *
+ * **变量说明**：
+ * - **`result`**：存储带有颜色的点云结果。
+ * - **`result_use`**：存储实际使用的点云结果。
+ * - **`local_find`**：存储局部点云中成功找到匹配点的点索引及其匹配的全局点索引。
+ * - **`local_nofind`**：存储局部点云中未找到匹配点的点索引。
+ * - **`global_match`**：存储全局点云中被匹配到的点索引。
+ * - **`global_nomatch`**：存储全局点云中未被匹配到的点索引。
+ */
+std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointCloud<PointType>::Ptr> detect(
+    const pcl::PointCloud<PointType>::Ptr &local_,
+    const pcl::PointCloud<PointType>::Ptr &global_,
+    const float &search_dis_)
 {
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGB>()); // result
-    pcl::PointCloud<PointType>::Ptr result_use(new pcl::PointCloud<PointType>());           // result
+    // 初始化结果点云
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGB>()); // 带颜色的结果点云
+    pcl::PointCloud<PointType>::Ptr result_use(new pcl::PointCloud<PointType>());           // 实际使用的结果点云
     int local_num = local_->points.size();
     std::cout << "Second local scan points num is: " << local_num << std::endl;
 
-    // select update area after registeration
+    // 获取局部点云的边界，并选择全局点云中的更新区域
     PointType point_min, point_max;
     pcl::getMinMax3D(*local_, point_min, point_max);
-    float min_x = point_min.x;
-    float min_y = point_min.y;
-    float min_z = point_min.z;
-    float max_x = point_max.x;
-    float max_y = point_max.y;
-    float max_z = point_max.z;
+    float min_x = point_min.x, min_y = point_min.y, min_z = point_min.z;
+    float max_x = point_max.x, max_y = point_max.y, max_z = point_max.z;
 
     int global_num = global_->points.size();
     std::cout << "First global scan points num is: " << global_num << std::endl;
 
+    // 筛选全局点云中与局部点云范围重叠的点
     pcl::PointCloud<PointType>::Ptr global_select(new pcl::PointCloud<PointType>());
     for (size_t i = 0; i < global_num; i++)
     {
@@ -29,59 +61,58 @@ std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointCloud<PointType>::Pt
         global_select->points.emplace_back(pt);
     }
     int select_num = global_select->points.size();
-
-    std::cout << "First glocal has been selected as num : " << select_num << " by scaled " << "\n"
+    std::cout << "First global has been selected as num : " << select_num << "\n"
               << "x: " << min_x << " to  " << max_x << "\n"
               << "y: " << min_y << " to  " << max_y << "\n"
               << "z: " << min_z << " to  " << max_z << std::endl;
 
-    // local search based on global
+    // 创建KD树，进行局部点云与全局点云的匹配
     pcl::KdTreeFLANN<PointType>::Ptr kdtree(new pcl::KdTreeFLANN<PointType>());
-    kdtree->setInputCloud(global_select); // global select input
+    kdtree->setInputCloud(global_select);
 
     std::vector<std::pair<int, std::vector<int>>> local_find;
     std::vector<int> local_nofind;
-    std::vector<int> global_match;
-    std::vector<int> global_nomatch;
+    std::vector<int> global_match, global_nomatch;
     for (size_t i = 0; i < local_num; i++)
     {
         std::vector<int> id;
         std::vector<float> dis;
-        kdtree->radiusSearch(local_->points[i], search_dis_, id, dis); // local find
+        kdtree->radiusSearch(local_->points[i], search_dis_, id, dis); // 搜索半径内的点
 
-        if (id.size() != 0)
+        if (!id.empty())
         {
-            local_find.emplace_back(std::make_pair(i, id)); // local find
+            local_find.emplace_back(std::make_pair(i, id)); // 成功匹配的点
         }
         else
         {
-            local_nofind.emplace_back(i); // local not find
+            local_nofind.emplace_back(i); // 未匹配的点
         }
 
         global_match.insert(global_match.end(), id.begin(), id.end());
     }
 
+    // 去除全局点云中的重复匹配点
     std::sort(global_match.begin(), global_match.end());
-    std::vector<int>::iterator it = unique(global_match.begin(), global_match.end());
-    global_match.erase(it, global_match.end()); // global match
+    global_match.erase(unique(global_match.begin(), global_match.end()), global_match.end());
 
+    // 获取未匹配的全局点索引
     for (size_t i = 0; i < select_num; i++)
     {
         if (std::find(global_match.begin(), global_match.end(), i) == global_match.end())
         {
-            global_nomatch.emplace_back(i); // global match
+            global_nomatch.emplace_back(i);
         }
     }
 
-    // local find and glocal match -> point fusion (green)
+    // 融合局部点云中匹配成功的点和全局点云点（绿色点）
     for (auto &pr : local_find)
     {
         pcl::PointXYZRGB pt_rgb;
         PointType pt_use;
 
         int fusion_num = pr.second.size() + 1;
-        float local_ratio = 1 / fusion_num + 1;
-        float global_ratio = 1 - 1 / fusion_num / pr.second.size();
+        float local_ratio = 1.0 / fusion_num;
+        float global_ratio = 1.0 - local_ratio;
 
         float x_sum = local_->points[pr.first].x * local_ratio;
         float y_sum = local_->points[pr.first].y * local_ratio;
@@ -92,51 +123,46 @@ std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointCloud<PointType>::Pt
             y_sum += global_select->points[pr0].y * global_ratio;
             z_sum += global_select->points[pr0].z * global_ratio;
         }
-        pt_rgb.x = x_sum / fusion_num;
-        pt_rgb.y = y_sum / fusion_num;
-        pt_rgb.z = z_sum / fusion_num;
-        pt_use.x = x_sum / fusion_num;
-        pt_use.y = y_sum / fusion_num;
-        pt_use.z = z_sum / fusion_num;
-        pt_rgb.r = 0;
-        pt_rgb.g = 0;
-        pt_rgb.b = 255.0;
-        result->points.emplace_back(pt_rgb);     // save
-        result_use->points.emplace_back(pt_use); // save
-    }
-    std::cout << "local find and glocal match -> fusion" << std::endl;
 
-    // local not find -> new
+        pt_rgb.x = pt_use.x = x_sum / fusion_num;
+        pt_rgb.y = pt_use.y = y_sum / fusion_num;
+        pt_rgb.z = pt_use.z = z_sum / fusion_num;
+        pt_rgb.r = 0;
+        pt_rgb.g = 255;
+        pt_rgb.b = 0;
+        result->points.emplace_back(pt_rgb);
+        result_use->points.emplace_back(pt_use);
+    }
+    std::cout << "local find and global match -> fusion" << std::endl;
+
+    // 将局部点云中未匹配的点作为新点（蓝色点）
     for (auto &vi : local_nofind)
     {
-        PointType pt_use;
         pcl::PointXYZRGB pt_rgb;
-        pt_rgb.x = local_->points[vi].x;
-        pt_rgb.y = local_->points[vi].y;
-        pt_rgb.z = local_->points[vi].z;
+        PointType pt_use = local_->points[vi];
+        pt_rgb.x = pt_use.x;
+        pt_rgb.y = pt_use.y;
+        pt_rgb.z = pt_use.z;
         pt_rgb.r = 0;
         pt_rgb.g = 0;
-        pt_rgb.b = 255.0;
-        pt_use.x = local_->points[vi].x;
-        pt_use.y = local_->points[vi].y;
-        pt_use.z = local_->points[vi].z;
-
-        result->points.emplace_back(pt_rgb); // save
+        pt_rgb.b = 255;
+        result->points.emplace_back(pt_rgb);
         result_use->points.emplace_back(pt_use);
     }
     std::cout << "local not find -> new" << std::endl;
 
-    // global not match -> old
+    // 将全局点云中未匹配的点标记为旧点（红色点）
     for (auto &vi : global_nomatch)
     {
         pcl::PointXYZRGB pt_rgb;
-        pt_rgb.x = global_select->points[vi].x;
-        pt_rgb.y = global_select->points[vi].y;
-        pt_rgb.z = global_select->points[vi].z;
-        pt_rgb.r = 255.0;
+        PointType pt_use = global_select->points[vi];
+        pt_rgb.x = pt_use.x;
+        pt_rgb.y = pt_use.y;
+        pt_rgb.z = pt_use.z;
+        pt_rgb.r = 255;
         pt_rgb.g = 0;
         pt_rgb.b = 0;
-        result->points.emplace_back(pt_rgb); // save
+        result->points.emplace_back(pt_rgb);
     }
     std::cout << "global not match -> old" << std::endl;
 
