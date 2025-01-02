@@ -1,144 +1,207 @@
 #include "tgrs.h"
 #include "tictoc.hpp"
 
-void TGRS::mergeClusters(std::vector<int>& clusterIdxs_, const int& idx1_, const int& idx2_){
-    for(int i = 0; i < clusterIdxs_.size(); i++){
-        if(clusterIdxs_[i] == idx1_){
+void TGRS::mergeClusters(std::vector<int> &clusterIdxs_, const int &idx1_, const int &idx2_)
+{
+    for (int i = 0; i < clusterIdxs_.size(); i++)
+    {
+        if (clusterIdxs_[i] == idx1_)
+        {
             clusterIdxs_[i] = idx2_;
         }
     }
 }
 
-std::vector<int> TGRS::findVoxelNeighbors(const int& range_idx_, const int& sector_idx_, const int& azimuth_idx_, int size_){
+std::vector<int> TGRS::findVoxelNeighbors(const int &range_idx_, const int &sector_idx_, const int &azimuth_idx_, int size_)
+{
     std::vector<int> neighborIdxs;
-    if(range_idx_ > RANGE_NUM * 0.6){
+    if (range_idx_ > RANGE_NUM * 0.6)
+    {
         size_ = 1;
     }
-    for(int x = range_idx_ - size_; x <= range_idx_ + size_; x++){
-        if(x > RANGE_NUM -1 || x < 0) {continue;}
-        for(int y = sector_idx_ - size_; y <= sector_idx_ + size_; y++){
-            if(y > SECTOR_NUM -1 || y < 0) {continue;}
-            for(int z = azimuth_idx_ - size_; z <= azimuth_idx_ + size_; z++){
-                if(z > AZIMUTH_NUM - 1 || z < 0) {continue;}
-                neighborIdxs.emplace_back(x * SECTOR_NUM + y + z * RANGE_NUM * SECTOR_NUM);  
+    for (int x = range_idx_ - size_; x <= range_idx_ + size_; x++)
+    {
+        if (x > RANGE_NUM - 1 || x < 0)
+        {
+            continue;
+        }
+        for (int y = sector_idx_ - size_; y <= sector_idx_ + size_; y++)
+        {
+            if (y > SECTOR_NUM - 1 || y < 0)
+            {
+                continue;
+            }
+            for (int z = azimuth_idx_ - size_; z <= azimuth_idx_ + size_; z++)
+            {
+                if (z > AZIMUTH_NUM - 1 || z < 0)
+                {
+                    continue;
+                }
+                neighborIdxs.emplace_back(x * SECTOR_NUM + y + z * RANGE_NUM * SECTOR_NUM);
             }
         }
     }
     return neighborIdxs;
 }
 
-void TGRS::cluster(const std::vector<PointAPRI>& apri_vec_, 
-                   std::unordered_map<int, Voxel>& hash_cloud_,
-                   std::unordered_map<int, std::vector<int>>& cluster_vox)
+/**
+ * @brief 对点云进行聚类
+ * @param apri_vec_ 输入的APRI点云向量
+ * @param hash_cloud_ 体素哈希表
+ * @param cluster_vox 聚类结果的体素映射
+ */
+void TGRS::cluster(const std::vector<PointAPRI> &apri_vec_,
+                   std::unordered_map<int, Voxel> &hash_cloud_,
+                   std::unordered_map<int, std::vector<int>> &cluster_vox)
 {
+    // 初始化聚类ID从4开始
     int cluster_name = 4;
+    // 初始化点云聚类标签数组,初始值为-1
     std::vector<int> clusterIdxs = std::vector<int>(apri_vec_.size(), -1);
 
     TicToc cluster_t;
 
-    // vec cluster
-    for(int i = 0; i < apri_vec_.size(); i++){
+    // 对每个点进行聚类
+    for (int i = 0; i < apri_vec_.size(); i++)
+    {
         PointAPRI apri = apri_vec_[i];
         std::unordered_map<int, Voxel>::iterator it_find1;
         std::unordered_map<int, Voxel>::iterator it_find2;
-        std::vector<int> neighbors;  // restore a lot of apri-neighbors idxs
+        std::vector<int> neighbors; // 存储邻近点的索引
 
+        // 在哈希表中查找当前点所在体素
         it_find1 = hash_cloud_.find(apri.voxel_idx);
-        if(it_find1 != hash_cloud_.end()){
-            std::vector<int> neighbor = findVoxelNeighbors(apri.range_idx, apri.sector_idx, apri.azimuth_idx, 1);   
-            for(int k = 0; k < neighbor.size(); k++){
-                it_find2 =  hash_cloud_.find(neighbor[k]);   
-                if(it_find2 != hash_cloud_.end()){
+        if (it_find1 != hash_cloud_.end())
+        {
+            // 获取邻近体素
+            std::vector<int> neighbor = findVoxelNeighbors(apri.range_idx, apri.sector_idx, apri.azimuth_idx, 1);
+            // 遍历邻近体素
+            for (int k = 0; k < neighbor.size(); k++)
+            {
+                it_find2 = hash_cloud_.find(neighbor[k]);
+                if (it_find2 != hash_cloud_.end())
+                {
                     addVec(neighbors, it_find2->second.ptIdx);
                 }
             }
         }
 
         neighbors.swap(neighbors);
-        if(neighbors.size() > 0){
-            for(int n = 0; n < neighbors.size(); n++){
-                int oc = clusterIdxs[i];
-                int nc = clusterIdxs[neighbors[n]];
+        // 如果存在邻近点
+        if (neighbors.size() > 0)
+        {
+            for (int n = 0; n < neighbors.size(); n++)
+            {
+                int oc = clusterIdxs[i];            // 当前点的聚类ID
+                int nc = clusterIdxs[neighbors[n]]; // 邻近点的聚类ID
 
-                if(oc != -1 && nc != -1){
-                    if(oc != nc){
-                        mergeClusters(clusterIdxs, oc, nc);  // merge
+                // 如果当前点和邻近点都已经有聚类ID
+                if (oc != -1 && nc != -1)
+                {
+                    if (oc != nc)
+                    {
+                        mergeClusters(clusterIdxs, oc, nc); // 合并聚类
                     }
                 }
-                else{
-                    if(nc != -1){
+                else
+                {
+                    // 如果邻近点有聚类ID,当前点继承该ID
+                    if (nc != -1)
+                    {
                         clusterIdxs[i] = nc;
                     }
-                    else{
-                        if(oc != -1){
+                    else
+                    {
+                        // 如果当前点有聚类ID,邻近点继承该ID
+                        if (oc != -1)
+                        {
                             clusterIdxs[neighbors[n]] = oc;
                         }
                     }
-                }    
+                }
             }
         }
 
-        if(clusterIdxs[i] == -1){
-            cluster_name ++;   //   a new class
-            clusterIdxs[i] = cluster_name;  // just encode the cluster name
-            for(int m = 0; m < neighbors.size(); m++){
+        // 如果当前点仍未分配聚类ID,创建新的聚类
+        if (clusterIdxs[i] == -1)
+        {
+            cluster_name++;                // 新聚类ID
+            clusterIdxs[i] = cluster_name; // 为当前点分配聚类ID
+            // 为邻近点分配相同的聚类ID
+            for (int m = 0; m < neighbors.size(); m++)
+            {
                 clusterIdxs[neighbors[m]] = cluster_name;
             }
         }
     }
 
-    // voxels cluster
+    // 构建体素聚类映射
     std::unordered_map<int, std::vector<int>>::iterator it_v;
-    for(size_t i = 0; i < clusterIdxs.size(); i++){
+    for (size_t i = 0; i < clusterIdxs.size(); i++)
+    {
         it_v = cluster_vox.find(clusterIdxs[i]);
-        if(it_v != cluster_vox.end()){
+        if (it_v != cluster_vox.end())
+        {
+            // 如果聚类ID已存在,添加体素索引
             it_v->second.emplace_back(apri_vec_[i].voxel_idx);
             hash_cloud_[apri_vec_[i].voxel_idx].label = it_v->first;
         }
-        else{
+        else
+        {
+            // 如果是新的聚类ID,创建新的体素向量
             std::vector<int> vox_vec;
             vox_vec.emplace_back(apri_vec_[i].voxel_idx);
             cluster_vox.insert(std::make_pair(clusterIdxs[i], vox_vec));
             hash_cloud_[apri_vec_[i].voxel_idx].label = clusterIdxs[i];
         }
     }
-    
-    for(auto& it : cluster_vox){
+
+    // 对每个聚类的体素进行采样
+    for (auto &it : cluster_vox)
+    {
         sampleVec(it.second);
     }
 }
 
-std::pair<PointType, PointType> TGRS::getBoundingBoxOfCloud(const pcl::PointCloud<PointType>::Ptr& cloud_){
+std::pair<PointType, PointType> TGRS::getBoundingBoxOfCloud(const pcl::PointCloud<PointType>::Ptr &cloud_)
+{
     PointType point_min, point_max;
     pcl::getMinMax3D(*cloud_, point_min, point_max);
     return std::make_pair(point_min, point_max);
 }
 
-pcl::PointCloud<PointType>::Ptr TGRS::getCloudByVec(const std::vector<int>& vec_, const pcl::PointCloud<PointType>::Ptr& cloud_){
+pcl::PointCloud<PointType>::Ptr TGRS::getCloudByVec(const std::vector<int> &vec_, const pcl::PointCloud<PointType>::Ptr &cloud_)
+{
     pcl::PointCloud<PointType>::Ptr cloudReturn(new pcl::PointCloud<PointType>());
-    for(auto &it : vec_){
+    for (auto &it : vec_)
+    {
         cloudReturn->points.emplace_back(cloud_->points[it]);
     }
     return cloudReturn;
 }
 
-void TGRS::recognizePD(SSC& ssc){
-    for(auto& it : ssc.cluster_vox){
+void TGRS::recognizePD(SSC &ssc)
+{
+    for (auto &it : ssc.cluster_vox)
+    {
         std::vector<int> voxIdx;
-        for(auto& id : it.second){
+        for (auto &id : it.second)
+        {
             voxIdx.emplace_back(ssc.hash_cloud[id].ptVoxIdx);
         }
         pcl::PointCloud<PointType>::Ptr voxels(new pcl::PointCloud<PointType>());
         *voxels += *getCloudByVec(voxIdx, ssc.cloud_vox);
         std::pair<PointType, PointType> heightPair = getBoundingBoxOfCloud(voxels);
-        if((heightPair.first.z <= -(SENSOR_HEIGHT - 0.2)) && ((heightPair.second.z + SENSOR_HEIGHT) <= PD_HEIGHT)){
+        if ((heightPair.first.z <= -(SENSOR_HEIGHT - 0.2)) && ((heightPair.second.z + SENSOR_HEIGHT) <= PD_HEIGHT))
+        {
             ssc.PD_cluster.emplace_back(it.first);
         }
     }
     std::cout << "There are " << ssc.PD_cluster.size() << " PD objects." << std::endl;
 }
 
-void TGRS::trackPD(SSC& ssc_pre, PointTypePose* pose_pre, SSC& ssc_next, PointTypePose* pose_next){
+void TGRS::trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTypePose *pose_next)
+{
     // Step 1: get voxel cloud
     pcl::PointCloud<PointType>::Ptr voxCloud_pre(new pcl::PointCloud<PointType>());
     *voxCloud_pre += *ssc_pre.cloud_vox;
@@ -157,18 +220,20 @@ void TGRS::trackPD(SSC& ssc_pre, PointTypePose* pose_pre, SSC& ssc_next, PointTy
     // pcl::io::savePCDFile("/home/yixin-f/fast-lio2/src/data_dy/vox_pre.pcd", *voxCloud_pre);
 
     // Step 3: PD projection (tracking)
-    for(auto& pd : ssc_next.PD_cluster){
+    for (auto &pd : ssc_next.PD_cluster)
+    {
         std::vector<int> projIdx;
-        for(auto& voxIdx : ssc_next.cluster_vox[pd]){
+        for (auto &voxIdx : ssc_next.cluster_vox[pd])
+        {
             PointType voxPt = voxCloud_nextTrans->points[ssc_next.hash_cloud[voxIdx].ptVoxIdx];
             float dis = pointDistance2d(voxPt);
             float angle = getPolarAngle(voxPt);
             float azimuth = getAzimuth(voxPt);
             int range_idx = std::ceil((dis - MIN_DIS) / RANGE_RES) - 1;
             int sector_idx = std::ceil((angle - MIN_ANGLE) / SECTOR_RES) - 1;
-            int azimuth_idx = std::ceil((azimuth - MIN_AZIMUTH) / AZIMUTH_RES) -1;
+            int azimuth_idx = std::ceil((azimuth - MIN_AZIMUTH) / AZIMUTH_RES) - 1;
             int voxel_idx = azimuth_idx * RANGE_NUM * SECTOR_NUM + range_idx * SECTOR_NUM + sector_idx;
-            
+
             std::vector<int> neighbor = findVoxelNeighbors(range_idx, sector_idx, azimuth_idx, 1);
 
             // choice one: find neighbors
@@ -184,24 +249,29 @@ void TGRS::trackPD(SSC& ssc_pre, PointTypePose* pose_pre, SSC& ssc_next, PointTy
         int all = projIdx.size();
         int success = 0;
         std::unordered_map<int, Voxel>::iterator it_find;
-        for(auto& proj : projIdx){
+        for (auto &proj : projIdx)
+        {
             it_find = ssc_pre.hash_cloud.find(proj);
-            if(it_find != ssc_pre.hash_cloud.end()){
-                success ++;
+            if (it_find != ssc_pre.hash_cloud.end())
+            {
+                success++;
             }
         }
         float overlapRatio = (float)success / (float)all;
         std::cout << "name: " << pd << " success: " << success << " all: " << all << " overlap ratio: " << overlapRatio << std::endl;
-        if(overlapRatio <= HD_RATIO){
-            ssc_next.HD_cluster.emplace_back(pd);  // PD to HD
+        if (overlapRatio <= HD_RATIO)
+        {
+            ssc_next.HD_cluster.emplace_back(pd); // PD to HD
         }
-        else{
-            ssc_next.AS_cluster.emplace_back(pd);  // PD to AS
+        else
+        {
+            ssc_next.AS_cluster.emplace_back(pd); // PD to AS
         }
     }
-    
+
     std::vector<int> AS_ptIdx;
-    for(auto& as : ssc_next.AS_cluster){
+    for (auto &as : ssc_next.AS_cluster)
+    {
         addVec(AS_ptIdx, ssc_next.hash_cloud[as].ptIdx);
     }
     *ssc_next.cloud_nd += *getCloudByVec(AS_ptIdx, ssc_next.cloud_use);
@@ -211,21 +281,25 @@ void TGRS::trackPD(SSC& ssc_pre, PointTypePose* pose_pre, SSC& ssc_next, PointTy
               << ANSI_COLOR_RED << " HD num: " << ssc_next.HD_cluster.size() << ANSI_COLOR_RESET << std::endl;
 }
 
-void TGRS::saveColorCloud(SSC& ssc, const std::string& path){
+void TGRS::saveColorCloud(SSC &ssc, const std::string &path)
+{
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
     cv::RNG rng(12345);
-    for(auto& it : ssc.cluster_vox){
+    for (auto &it : ssc.cluster_vox)
+    {
         int r, g, b;
-        r = rng.uniform(20, 200); 
-        g = rng.uniform(20, 200); 
-        b = rng.uniform(20, 200); 
+        r = rng.uniform(20, 200);
+        g = rng.uniform(20, 200);
+        b = rng.uniform(20, 200);
         std::vector<int> ptIdx;
-        for(auto& vox : it.second){
+        for (auto &vox : it.second)
+        {
             addVec(ptIdx, ssc.hash_cloud[vox].ptIdx);
         }
         pcl::PointCloud<PointType>::Ptr cloudGrab(new pcl::PointCloud<PointType>());
         *cloudGrab += *getCloudByVec(ptIdx, ssc.cloud_use);
-        for(size_t i = 0; i < cloudGrab->points.size(); i++){
+        for (size_t i = 0; i < cloudGrab->points.size(); i++)
+        {
             pcl::PointXYZRGB rgb;
             rgb.x = cloudGrab->points[i].x;
             rgb.y = cloudGrab->points[i].y;
@@ -241,4 +315,3 @@ void TGRS::saveColorCloud(SSC& ssc, const std::string& path){
     std::cout << "segmented cloud size: " << colorCloud->points.size() << std::endl;
     pcl::io::savePCDFile(path, *colorCloud);
 }
-
