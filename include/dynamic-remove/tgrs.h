@@ -30,60 +30,62 @@
 
 #define VALID_NUM 5
 
-// apiric-format of point
+// 定义点的球坐标系格式结构体
 struct PointAPRI
 {
-    float x, y, z;
-    float range;
-    float angle;
-    float azimuth;
-    int range_idx = -1;
-    int sector_idx = -1;
-    int azimuth_idx = -1;
-    int voxel_idx = -1; // id in voxel cloud
+    float x, y, z;        // 点的笛卡尔坐标(x,y,z)
+    float range;          // 点到原点的距离(径向距离)
+    float angle;          // 点在水平面上的角度(方位角)
+    float azimuth;        // 点的俯仰角(天顶角)
+    int range_idx = -1;   // 点所在的径向距离索引
+    int sector_idx = -1;  // 点所在的扇区索引
+    int azimuth_idx = -1; // 点所在的俯仰角索引
+    int voxel_idx = -1;   // 点在体素点云中的索引
 };
 
-// voxel-type in hash cloud
+// 在哈希点云中的体素结构体定义
 struct Voxel
 {
-    int range_idx;
-    int sector_idx;
-    int azimuth_idx;
-    int label = -1;
-    PointType center;       // the point center's intensity is its id in voxel cloud
-    std::vector<int> ptIdx; // the vector of id cloud_use
-    int ptVoxIdx;           // id in voxel's center cloud
+    int range_idx;          // 体素在径向距离方向上的索引
+    int sector_idx;         // 体素在扇区方向上的索引
+    int azimuth_idx;        // 体素在俯仰角方向上的索引
+    int label = -1;         // 体素的标签,默认为-1表示未标记
+    PointType center;       // 体素中心点,其强度值为该点在体素点云中的索引
+    std::vector<int> ptIdx; // 存储体素内点在cloud_use点云中的索引数组
+    int ptVoxIdx;           // 该体素中心点在体素点云中的索引
 };
 
-// frame_SSC
+// frame_SSC类用于处理单帧点云数据的分割和聚类
 class SSC
 {
 public:
-    int frame_id;
+    int frame_id; // 帧ID
 
-    int range_num;
-    int sector_num;
-    int azimuth_num;
-    int bin_num;
+    // 体素网格参数
+    int range_num;   // 径向距离方向的体素数量
+    int sector_num;  // 扇区方向的体素数量
+    int azimuth_num; // 俯仰角方向的体素数量
+    int bin_num;     // 总体素数量
 
-    std::vector<PointAPRI> apri_vec;
-    std::unordered_map<int, Voxel> hash_cloud;
-    std::unordered_map<int, std::vector<int>> cluster_vox; // cluster name + voxel id
-    std::vector<int> PD_cluster;                           // PD cluster name
-    std::vector<int> HD_cluster;                           // HD cluster name
-    std::vector<int> AS_cluster;                           // HD cluster name
+    std::vector<PointAPRI> apri_vec;                       // 存储点云的球坐标系表示
+    std::unordered_map<int, Voxel> hash_cloud;             // 体素哈希表,key为体素索引,value为体素信息
+    std::unordered_map<int, std::vector<int>> cluster_vox; // 聚类结果,key为聚类ID,value为该类包含的体素索引
+    std::vector<int> PD_cluster;                           // 潜在动态物体聚类ID
+    std::vector<int> HD_cluster;                           // 高度差异聚类ID
+    std::vector<int> AS_cluster;                           // 辅助聚类ID
 
-    boost::shared_ptr<PatchWork<PointType>> PatchworkGroundSeg; // patchwork
-    pcl::PointCloud<PointType>::Ptr cloud_g;                    // ground
-    pcl::PointCloud<PointType>::Ptr cloud_ng;
+    boost::shared_ptr<PatchWork<PointType>> PatchworkGroundSeg; // 地面分割器
+    pcl::PointCloud<PointType>::Ptr cloud_g;                    // 地面点云
+    pcl::PointCloud<PointType>::Ptr cloud_ng;                   // 非地面点云
 
-    pcl::PointCloud<PointType>::Ptr cloud_use;
+    pcl::PointCloud<PointType>::Ptr cloud_use; // 实际使用的点云
 
-    pcl::PointCloud<PointType>::Ptr cloud_d; // dynamic
-    pcl::PointCloud<PointType>::Ptr cloud_nd;
+    pcl::PointCloud<PointType>::Ptr cloud_d;  // 动态点云
+    pcl::PointCloud<PointType>::Ptr cloud_nd; // 非动态点云
 
-    pcl::PointCloud<PointType>::Ptr cloud_vox; // voxel's center cloud
+    pcl::PointCloud<PointType>::Ptr cloud_vox; // 体素中心点云
 
+    // 分配内存空间
     void allocateMemory()
     {
         PatchworkGroundSeg.reset(new PatchWork<PointType>());
@@ -95,22 +97,12 @@ public:
         cloud_vox.reset(new pcl::PointCloud<PointType>());
     }
 
+    // 使用PatchWork算法提取地面点云
     void extractGroudByPatchWork(const pcl::PointCloud<PointType>::Ptr &cloud_in)
     {
         double time_pw;
-        // pcl::PointCloud<PointType>::Ptr cloud_gound(new pcl::PointCloud<PointType>()); // ground
         PatchworkGroundSeg->set_sensor(SENSOR_HEIGHT);
         PatchworkGroundSeg->estimate_ground(*cloud_in, *cloud_g, *cloud_ng, time_pw);
-        // for(size_t i = 0; i < cloud_gound->points.size(); i++){
-        //     pcl::PointXYZRGB rgb;
-        //     rgb.x = cloud_gound->points[i].x;
-        //     rgb.y = cloud_gound->points[i].y;
-        //     rgb.z = cloud_gound->points[i].z;
-        //     rgb.r = 139.0;
-        //     rgb.g = 69.0;
-        //     rgb.b = 19.0;
-        //     cloud_g->points.emplace_back(rgb);
-        // }
         std::cout << "Ground Extract: " << " all pt num: " << cloud_in->points.size()
                   << " sensor height: " << SENSOR_HEIGHT
                   << " ground pt num: " << cloud_g->points.size()
@@ -118,30 +110,27 @@ public:
                   << " time cost(ms): " << time_pw << std::endl;
     }
 
-    // make apri vector
+    // 将点云转换为球坐标系表示
     void makeApriVec(const pcl::PointCloud<PointType>::Ptr &cloud_)
     {
         for (size_t i = 0; i < cloud_->points.size(); i++)
         {
             PointType pt = cloud_->points[i];
-            float dis = pointDistance2d(pt);
-            float angle = getPolarAngle(pt);
-            float azimuth = getAzimuth(pt);
-            if (dis < MIN_DIS || dis > MAX_DIS)
-            {
-                continue;
-            }
-            if (angle < MIN_ANGLE || angle > MAX_ANGLE)
-            {
-                continue;
-            }
-            if (azimuth < MIN_AZIMUTH || azimuth > MAX_AZIMUTH)
+            float dis = pointDistance2d(pt); // 计算2D距离
+            float angle = getPolarAngle(pt); // 计算极角
+            float azimuth = getAzimuth(pt);  // 计算方位角
+
+            // 过滤掉范围外的点
+            if (dis < MIN_DIS || dis > MAX_DIS ||
+                angle < MIN_ANGLE || angle > MAX_ANGLE ||
+                azimuth < MIN_AZIMUTH || azimuth > MAX_AZIMUTH)
             {
                 continue;
             }
 
             cloud_use->points.push_back(pt);
 
+            // 构建球坐标系点结构
             PointAPRI apri;
             apri.x = pt.x;
             apri.y = pt.y;
@@ -149,10 +138,12 @@ public:
             apri.range = dis;
             apri.angle = angle;
             apri.azimuth = azimuth;
+            // 计算体素索引
             apri.range_idx = std::ceil((dis - MIN_DIS) / RANGE_RES) - 1;
             apri.sector_idx = std::ceil((angle - MIN_ANGLE) / SECTOR_RES) - 1;
             apri.azimuth_idx = std::ceil((azimuth - MIN_AZIMUTH) / AZIMUTH_RES) - 1;
             apri.voxel_idx = apri.azimuth_idx * RANGE_NUM * SECTOR_NUM + apri.range_idx * SECTOR_NUM + apri.sector_idx;
+
             if (apri.voxel_idx > BIN_NUM)
             {
                 ROS_WARN("pt %d can't find its bin", (int)i);
@@ -163,7 +154,7 @@ public:
         std::cout << "apri vec size: " << apri_vec.size() << " py use num: " << cloud_use->points.size() << std::endl;
     }
 
-    // make hash table for voxels
+    // 构建体素哈希表
     void makeHashCloud(const std::vector<PointAPRI> &apriIn_)
     {
         std::unordered_map<int, Voxel>::iterator it_find;
@@ -174,15 +165,18 @@ public:
             it_find = hash_cloud.find(apri.voxel_idx);
             if (it_find != hash_cloud.end())
             {
+                // 如果体素已存在,添加点索引
                 it_find->second.ptIdx.emplace_back(i);
             }
             else
             {
+                // 如果体素不存在,创建新体素
                 Voxel voxel;
                 voxel.ptIdx.emplace_back(i);
                 voxel.range_idx = apri.range_idx;
                 voxel.sector_idx = apri.sector_idx;
                 voxel.azimuth_idx = apri.azimuth_idx;
+                // 计算体素中心点坐标
                 float range_center = (apri.range_idx * 2 + 1) / 2 * RANGE_RES + MIN_DIS;
                 float sector_center = deg2rad((apri.sector_idx * 2 + 1) / 2 * SECTOR_RES) + MIN_ANGLE;
                 float azimuth_center = deg2rad((apri.azimuth_idx * 2 + 1) / 2 * AZIMUTH_RES) + deg2rad(MIN_AZIMUTH);
@@ -200,38 +194,49 @@ public:
     }
 
     ~SSC() {}
+
+    // 构造函数
     SSC(const pcl::PointCloud<PointType>::Ptr &cloud_in, const int &id)
     {
         frame_id = id;
         std::cout << ANSI_COLOR_GREEN << "current frame id: " << frame_id << ANSI_COLOR_RESET << std::endl;
         allocateMemory();
-        extractGroudByPatchWork(cloud_in);
-        makeApriVec(cloud_ng);
-        makeHashCloud(apri_vec);
+        extractGroudByPatchWork(cloud_in); // 提取地面点
+        makeApriVec(cloud_ng);             // 对非地面点进行球坐标系转换
+        makeHashCloud(apri_vec);           // 构建体素哈希表
     }
 };
 
+// TGRS类用于处理点云的分割、分类和跟踪
 class TGRS
 {
 public:
-    TGRS() {}
-    ~TGRS() {}
+    TGRS() {}  // 默认构造函数
+    ~TGRS() {} // 默认析构函数
 
-    // cluster
+    // 聚类相关函数
+    // 查找给定体素周围的邻居体素
     std::vector<int> findVoxelNeighbors(const int &range_idx_, const int &sector_idx_, const int &azimuth_idx_, int size_);
+    // 合并两个聚类
     void mergeClusters(std::vector<int> &clusterIdxs_, const int &idx1_, const int &idx2_);
+    // 对点云进行聚类
     void cluster(const std::vector<PointAPRI> &apri_vec_,
                  std::unordered_map<int, Voxel> &hash_cloud_,
                  std::unordered_map<int, std::vector<int>> &cluster_vox);
+    // 获取点云的包围盒
     std::pair<PointType, PointType> getBoundingBoxOfCloud(const pcl::PointCloud<PointType>::Ptr &cloud_);
 
-    // classification
+    // 分类相关函数
+    // 根据索引从点云中提取点
     pcl::PointCloud<PointType>::Ptr getCloudByVec(const std::vector<int> &vec_, const pcl::PointCloud<PointType>::Ptr &cloud_);
+    // 识别潜在的动态物体
     void recognizePD(SSC &ssc);
 
-    // tracking
+    // 跟踪相关函数
+    // 跟踪两帧之间的动态物体
     void trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTypePose *pose_next);
 
-    // save
+    // 保存相关函数
+    // 保存带颜色的点云
     void saveColorCloud(SSC &ssc, const std::string &path);
 };
