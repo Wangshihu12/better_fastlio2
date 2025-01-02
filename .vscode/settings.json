@@ -86,7 +86,8 @@
         "bit": "cpp",
         "core": "cpp",
         "numericaldiff": "cpp",
-        "specialfunctions": "cpp"
+        "specialfunctions": "cpp",
+        "any": "cpp"
     },
     "cmake.configureOnOpen": false,
     "ros.distro": "noetic"
