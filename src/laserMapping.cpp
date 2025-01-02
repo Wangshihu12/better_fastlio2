@@ -2280,43 +2280,53 @@ int main(int argc, char **argv)
             feats_undistort_copy->points.clear();
             *feats_undistort_copy += *feats_undistort;
 
-            // // TODO: add dynamic remove here
-            // if(feats_undistort_copy->points.size() > 0){
-            //     Eigen::Vector4d q(msg_imu_pose.pose.orientation.x, msg_imu_pose.pose.orientation.y, msg_imu_pose.pose.orientation.z, msg_imu_pose.pose.orientation.w);
-            //     Eigen::Matrix3d R = quaternionToRotation(quaternionNormalize(q));
-            //     Eigen::Matrix<double, 3, 1> euler = RotMtoEuler(R);
-            //     PointTypePose pose_next;
-            //     pose_next.x = msg_imu_pose.pose.position.x;
-            //     pose_next.y = msg_imu_pose.pose.position.y;
-            //     pose_next.z = msg_imu_pose.pose.position.z;
-            //     pose_next.roll = euler(0, 0);
-            //     pose_next.pitch = euler(1, 0);
-            //     pose_next.yaw = euler(2, 0);
+            // TODO: add dynamic remove here
+            if(feats_undistort_copy->points.size() > 0){
+                // 将IMU姿态四元数转换为旋转矩阵,再转换为欧拉角
+                Eigen::Vector4d q(msg_imu_pose.pose.orientation.x, msg_imu_pose.pose.orientation.y, msg_imu_pose.pose.orientation.z, msg_imu_pose.pose.orientation.w);
+                Eigen::Matrix3d R = quaternionToRotation(quaternionNormalize(q));
+                Eigen::Matrix<double, 3, 1> euler = RotMtoEuler(R);
+                // 构建当前位姿
+                PointTypePose pose_next;
+                pose_next.x = msg_imu_pose.pose.position.x;
+                pose_next.y = msg_imu_pose.pose.position.y;
+                pose_next.z = msg_imu_pose.pose.position.z;
+                pose_next.roll = euler(0, 0);
+                pose_next.pitch = euler(1, 0);
+                pose_next.yaw = euler(2, 0);
 
-            //     SSC ssc_next(feats_undistort, 0);
-            //     remover.cluster(ssc_next.apri_vec, ssc_next.hash_cloud, ssc_next.cluster_vox);
-            //     remover.recognizePD(ssc_next);
+                // 对当前帧点云进行聚类
+                SSC ssc_next(feats_undistort, 0);
+                remover.cluster(ssc_next.apri_vec, ssc_next.hash_cloud, ssc_next.cluster_vox);
+                // 识别动态物体
+                remover.recognizePD(ssc_next);
 
-            //     Eigen::Vector4d q_copy(geoQuat.x, geoQuat.y, geoQuat.z, geoQuat.w);
-            //     Eigen::Matrix3d R_copy = quaternionToRotation(quaternionNormalize(q_copy));
-            //     Eigen::Matrix<double, 3, 1> euler_copy = RotMtoEuler(R_copy);
-            //     PointTypePose pose_pre;
-            //     pose_pre.x = pos_lid_copy(0);
-            //     pose_pre.y = pos_lid_copy(1);
-            //     pose_pre.z = pos_lid_copy(2);
-            //     pose_pre.roll = euler_copy(0, 0);
-            //     pose_pre.pitch = euler_copy(1, 0);
-            //     pose_pre.yaw = euler_copy(2, 0);
+                // 将上一帧的姿态四元数转换为旋转矩阵,再转换为欧拉角
+                Eigen::Vector4d q_copy(geoQuat.x, geoQuat.y, geoQuat.z, geoQuat.w);
+                Eigen::Matrix3d R_copy = quaternionToRotation(quaternionNormalize(q_copy));
+                Eigen::Matrix<double, 3, 1> euler_copy = RotMtoEuler(R_copy);
+                // 构建上一帧位姿
+                PointTypePose pose_pre;
+                pose_pre.x = pos_lid_copy(0);
+                pose_pre.y = pos_lid_copy(1);
+                pose_pre.z = pos_lid_copy(2);
+                pose_pre.roll = euler_copy(0, 0);
+                pose_pre.pitch = euler_copy(1, 0);
+                pose_pre.yaw = euler_copy(2, 0);
 
-            //     SSC ssc_pre(feats_undistort_copy, 0);
-            //     remover.cluster(ssc_pre.apri_vec, ssc_pre.hash_cloud, ssc_pre.cluster_vox);
-            //     remover.recognizePD(ssc_pre);
+                // 对上一帧点云进行聚类
+                SSC ssc_pre(feats_undistort_copy, 0);
+                remover.cluster(ssc_pre.apri_vec, ssc_pre.hash_cloud, ssc_pre.cluster_vox);
+                // 识别动态物体
+                remover.recognizePD(ssc_pre);
 
-            //     remover.trackPD(ssc_pre, pose_pre, ssc_next, pose_next);
+                // 跟踪动态物体
+                remover.trackPD(ssc_pre, pose_pre, ssc_next, pose_next);
 
-            //     feats_undistort->points.clear();
-            //     *feats_undistort += *ssc_next.cloud_nd;
-            // }
+                // 更新当前帧点云,移除动态物体
+                feats_undistort->points.clear();
+                *feats_undistort += *ssc_next.cloud_nd;
+            }
 
             // 如果去畸变点云数据为空,则代表了激光雷达没有完成去畸变,此时还不能初始化成功
             if (feats_undistort->empty() || (feats_undistort == NULL))
