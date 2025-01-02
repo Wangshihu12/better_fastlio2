@@ -6,13 +6,23 @@
 #include <Eigen/Dense>
 #include <boost/format.hpp>
 
+// 标记点的Z值阈值,低于此值的点被视为地面标记点
 #define MARKER_Z_VALUE -2.2
+
+// 判断平面是否足够垂直的阈值,法向量与垂直方向的夹角余弦值需大于此值
 #define UPRIGHT_ENOUGH 0.55
+
+// 判断平面是否足够平坦的阈值,平面拟合误差需小于此值
 #define FLAT_ENOUGH 0.2
+
+// 判断点的高度是否过高的阈值,高于此值的点被视为非地面点
 #define TOO_HIGH_ELEVATION 0.0
+
+// 判断平面是否倾斜过大的阈值,法向量与垂直方向的夹角余弦值小于此值表示倾斜过大
 #define TOO_TILTED 1.0
 
-#define NUM_HEURISTIC_MAX_PTS_IN_PATCH 5000 // 3000
+// 每个patch中允许的最大点数,超过此值的点将被随机采样
+#define NUM_HEURISTIC_MAX_PTS_IN_PATCH 5000 // 原为3000
 
 using Eigen::JacobiSVD;
 using Eigen::MatrixXf;
