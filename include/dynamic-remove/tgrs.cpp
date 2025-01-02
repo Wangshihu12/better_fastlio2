@@ -1,6 +1,13 @@
 #include "tgrs.h"
 #include "tictoc.hpp"
 
+/**
+ * @brief 合并两个聚类
+ * @param clusterIdxs_ 聚类标签数组
+ * @param idx1_ 第一个聚类的标签
+ * @param idx2_ 第二个聚类的标签
+ * @details 将标签为idx1_的聚类合并到标签为idx2_的聚类中
+ */
 void TGRS::mergeClusters(std::vector<int> &clusterIdxs_, const int &idx1_, const int &idx2_)
 {
     for (int i = 0; i < clusterIdxs_.size(); i++)
@@ -12,6 +19,20 @@ void TGRS::mergeClusters(std::vector<int> &clusterIdxs_, const int &idx1_, const
     }
 }
 
+/**
+ * @brief 查找给定体素的邻近体素
+ * @param range_idx_ 距离索引
+ * @param sector_idx_ 扇区索引 
+ * @param azimuth_idx_ 方位角索引
+ * @param size_ 搜索范围大小
+ * @return 返回邻近体素的索引数组
+ * @details 
+ * 1. 如果距离索引大于RANGE_NUM的60%,则将搜索范围限制为1
+ * 2. 在给定的三维搜索范围内遍历所有体素:
+ *    - 检查x,y,z方向的索引是否越界
+ *    - 将有效的邻近体素索引添加到结果数组中
+ * 3. 体素索引的计算方式为: x * SECTOR_NUM + y + z * RANGE_NUM * SECTOR_NUM
+ */
 std::vector<int> TGRS::findVoxelNeighbors(const int &range_idx_, const int &sector_idx_, const int &azimuth_idx_, int size_)
 {
     std::vector<int> neighborIdxs;
@@ -163,6 +184,13 @@ void TGRS::cluster(const std::vector<PointAPRI> &apri_vec_,
     }
 }
 
+/**
+ * @brief 获取点云的包围盒
+ * @param[in] cloud_ 输入点云
+ * @return 包含最小点和最大点的pair
+ * @details 使用pcl::getMinMax3D获取点云中所有点的最小和最大坐标值,
+ *          返回一个pair,first为最小点,second为最大点
+ */
 std::pair<PointType, PointType> TGRS::getBoundingBoxOfCloud(const pcl::PointCloud<PointType>::Ptr &cloud_)
 {
     PointType point_min, point_max;
@@ -170,6 +198,14 @@ std::pair<PointType, PointType> TGRS::getBoundingBoxOfCloud(const pcl::PointClou
     return std::make_pair(point_min, point_max);
 }
 
+/**
+ * @brief 根据索引向量获取点云子集
+ * @param[in] vec_ 点云索引向量
+ * @param[in] cloud_ 输入点云
+ * @return 包含指定索引点的点云子集
+ * @details 遍历输入的索引向量,从原始点云中提取对应索引的点,
+ *          构建一个新的点云子集并返回
+ */
 pcl::PointCloud<PointType>::Ptr TGRS::getCloudByVec(const std::vector<int> &vec_, const pcl::PointCloud<PointType>::Ptr &cloud_)
 {
     pcl::PointCloud<PointType>::Ptr cloudReturn(new pcl::PointCloud<PointType>());
@@ -180,6 +216,21 @@ pcl::PointCloud<PointType>::Ptr TGRS::getCloudByVec(const std::vector<int> &vec_
     return cloudReturn;
 }
 
+/**
+ * @brief 识别潜在的动态物体(PD)
+ * @param[in,out] ssc 场景分割结果
+ * @details 
+ * 该函数通过以下步骤识别潜在的动态物体:
+ * 1. 遍历每个聚类
+ * 2. 获取聚类中所有体素的点云索引
+ * 3. 根据索引提取体素点云
+ * 4. 计算体素点云的高度范围
+ * 5. 如果高度范围满足以下条件,则认为是潜在动态物体:
+ *    - 最低点高度小于等于-(传感器高度-0.2)
+ *    - 最高点高度(加上传感器高度)小于等于预设的动态物体高度阈值
+ * 6. 将满足条件的聚类ID添加到PD_cluster中
+ * 7. 最后输出识别到的动态物体数量
+ */
 void TGRS::recognizePD(SSC &ssc)
 {
     for (auto &it : ssc.cluster_vox)
@@ -200,9 +251,27 @@ void TGRS::recognizePD(SSC &ssc)
     std::cout << "There are " << ssc.PD_cluster.size() << " PD objects." << std::endl;
 }
 
+/**
+ * @brief 跟踪潜在动态物体(PD)
+ * @param[in] ssc_pre 前一帧场景分割结果
+ * @param[in] pose_pre 前一帧位姿
+ * @param[in,out] ssc_next 当前帧场景分割结果
+ * @param[in] pose_next 当前帧位姿
+ * @details
+ * 该函数通过以下步骤跟踪潜在动态物体:
+ * 1. 获取前后帧的体素点云
+ * 2. 将当前帧点云变换到前一帧坐标系下
+ * 3. 对每个PD进行投影跟踪:
+ *    - 获取PD所在体素的邻域体素
+ *    - 计算与前一帧的重叠率
+ *    - 根据重叠率判断是否为高动态物体(HD)
+ *    - 重叠率低于阈值的PD标记为HD,否则标记为AS
+ * 4. 将AS点云添加到非动态点云中
+ * 5. 输出PD和HD的数量
+ */
 void TGRS::trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTypePose *pose_next)
 {
-    // Step 1: get voxel cloud
+    // Step 1: 获取体素点云
     pcl::PointCloud<PointType>::Ptr voxCloud_pre(new pcl::PointCloud<PointType>());
     *voxCloud_pre += *ssc_pre.cloud_vox;
     pcl::PointCloud<PointType>::Ptr voxCloud_next(new pcl::PointCloud<PointType>());
@@ -210,7 +279,7 @@ void TGRS::trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTy
     // std::cout << "pre vox cloud size: " << voxCloud_pre->points.size();
     // std::cout << "next vox cloud size: " << voxCloud_next->points.size();
 
-    // Step 2: transform voxel cloud
+    // Step 2: 点云坐标变换
     Eigen::Affine3f trans_pre = pcl::getTransformation(pose_pre->x, pose_pre->y, pose_pre->z, pose_pre->roll, pose_pre->pitch, pose_pre->yaw);
     Eigen::Affine3f trans_next = pcl::getTransformation(pose_next->x, pose_next->y, pose_next->z, pose_next->roll, pose_next->pitch, pose_next->yaw);
     Eigen::Affine3f trans_n2p = trans_pre.inverse() * trans_next;
@@ -219,7 +288,7 @@ void TGRS::trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTy
     // pcl::io::savePCDFile("/home/yixin-f/fast-lio2/src/data_dy/vox_next.pcd", *voxCloud_next);
     // pcl::io::savePCDFile("/home/yixin-f/fast-lio2/src/data_dy/vox_pre.pcd", *voxCloud_pre);
 
-    // Step 3: PD projection (tracking)
+    // Step 3: PD投影跟踪
     for (auto &pd : ssc_next.PD_cluster)
     {
         std::vector<int> projIdx;
@@ -236,16 +305,16 @@ void TGRS::trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTy
 
             std::vector<int> neighbor = findVoxelNeighbors(range_idx, sector_idx, azimuth_idx, 1);
 
-            // choice one: find neighbors
+            // 选择1: 寻找邻域
             addVec(projIdx, neighbor);
 
-            // // choice two: direct ptojection
+            // // 选择2: 直接投影
             // projIdx.emplace_back(voxel_idx);
         }
         sampleVec(projIdx);
         std::cout << "cur pd Idx: " << ssc_next.cluster_vox[pd].size() << std::endl;
 
-        // Step 4: HD detection
+        // Step 4: HD检测
         int all = projIdx.size();
         int success = 0;
         std::unordered_map<int, Voxel>::iterator it_find;
@@ -261,11 +330,11 @@ void TGRS::trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTy
         std::cout << "name: " << pd << " success: " << success << " all: " << all << " overlap ratio: " << overlapRatio << std::endl;
         if (overlapRatio <= HD_RATIO)
         {
-            ssc_next.HD_cluster.emplace_back(pd); // PD to HD
+            ssc_next.HD_cluster.emplace_back(pd); // PD转为HD
         }
         else
         {
-            ssc_next.AS_cluster.emplace_back(pd); // PD to AS
+            ssc_next.AS_cluster.emplace_back(pd); // PD转为AS
         }
     }
 
@@ -281,6 +350,21 @@ void TGRS::trackPD(SSC &ssc_pre, PointTypePose *pose_pre, SSC &ssc_next, PointTy
               << ANSI_COLOR_RED << " HD num: " << ssc_next.HD_cluster.size() << ANSI_COLOR_RESET << std::endl;
 }
 
+// 保存带颜色的点云
+// 输入:
+//   ssc: 场景分割结果
+//   path: 保存路径
+// 功能:
+//   1. 创建一个带颜色的点云对象colorCloud
+//   2. 为每个聚类生成随机RGB颜色
+//   3. 遍历每个聚类:
+//      - 获取聚类中所有点的索引
+//      - 根据索引获取原始点云
+//      - 为每个点赋予聚类对应的颜色
+//   4. 设置点云高度为1(无序点云)
+//   5. 设置点云宽度为点数
+//   6. 输出分割后的点云大小
+//   7. 保存为PCD文件
 void TGRS::saveColorCloud(SSC &ssc, const std::string &path)
 {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorCloud(new pcl::PointCloud<pcl::PointXYZRGB>());
